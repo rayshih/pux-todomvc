@@ -1,18 +1,18 @@
 module Main where
 
-import Prelude hiding (div)
 import App.Events (AppEffects)
 import Control.Monad.Eff (Eff)
 import DOM (DOM)
+import Data.Array (filter, snoc)
+import Data.Foldable (for_)
 import Pux (CoreEffects, App, start, EffModel, noEffects)
-import Pux.DOM.HTML (HTML)
 import Pux.DOM.Events (DOMEvent, onClick, onChange, targetValue)
+import Pux.DOM.HTML (HTML)
 import Pux.Renderer.React (renderToDOM)
-import Text.Smolder.HTML (div, input, button)
+import Text.Smolder.HTML (div, button, input)
 import Text.Smolder.HTML.Attributes (value)
 import Text.Smolder.Markup (text, (!), (#!))
-import Data.Foldable (for_)
-import Data.Array (snoc, filter)
+import Prelude hiding (div)
 
 data Event = FieldChanged DOMEvent
            | AddEntry DOMEvent
@@ -49,8 +49,8 @@ foldp (AddEntry ev) (State s) =
 foldp (DeleteEntry id ev) (State s) =
   noEffects $ State s { entries = filter (\(Entry en) -> en.id /= id) s.entries }
 
-renderEntry :: Entry -> HTML Event
-renderEntry (Entry { id, title }) = div do
+viewEntry :: Entry -> HTML Event
+viewEntry (Entry { id, title }) = div do
   text title
   button #! onClick (DeleteEntry id) $ text "x"
 
@@ -59,7 +59,7 @@ view (State st) = div do
   div $ text $ "nextId = " <> show st.nextId
   div $ text $ "editingField = " <> show st.editingField
   div do
-    for_ st.entries renderEntry
+    for_ st.entries $ viewEntry
   div do
     input #! onChange FieldChanged ! value st.editingField
     button #! onClick AddEntry $ text "Add"
