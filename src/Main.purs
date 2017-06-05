@@ -1,27 +1,68 @@
 module Main where
 
-import Prelude
+import Prelude hiding (div)
 import App.Events (AppEffects)
 import Control.Monad.Eff (Eff)
 import DOM (DOM)
 import Pux (CoreEffects, App, start, EffModel, noEffects)
 import Pux.DOM.HTML (HTML)
-import Pux.DOM.Events (DOMEvent)
+import Pux.DOM.Events (DOMEvent, onClick, onChange, targetValue)
 import Pux.Renderer.React (renderToDOM)
-import Text.Smolder.Markup (text)
+import Text.Smolder.HTML (div, input, button)
+import Text.Smolder.HTML.Attributes (value)
+import Text.Smolder.Markup (text, (!), (#!))
+import Data.Foldable (for_)
+import Data.Array (snoc, filter)
 
-data Event
+data Event = FieldChanged DOMEvent
+           | AddEntry DOMEvent
+           | DeleteEntry Int DOMEvent
 
-newtype State = State {}
+newtype Entry = Entry { id :: Int
+                      , title :: String
+                      }
+
+mkEntry :: Int -> String -> Entry
+mkEntry id title = Entry { id, title }
+
+newtype State = State { nextId :: Int
+                      , editingField :: String
+                      , entries :: Array Entry
+                      }
 
 init :: String -> State
-init url = State {}
+init url = State { nextId: 0
+                 , editingField: ""
+                 , entries: []
+                 }
 
 foldp :: forall fx. Event -> State -> EffModel State Event (AppEffects fx)
-foldp _ s = noEffects s
+foldp (FieldChanged ev) (State s) =
+  noEffects $ State s { editingField = targetValue ev }
+
+foldp (AddEntry ev) (State s) =
+  noEffects $ State s { nextId = s.nextId + 1
+                      , editingField = ""
+                      , entries = snoc s.entries $ mkEntry s.nextId s.editingField
+                      }
+
+foldp (DeleteEntry id ev) (State s) =
+  noEffects $ State s { entries = filter (\(Entry en) -> en.id /= id) s.entries }
+
+renderEntry :: Entry -> HTML Event
+renderEntry (Entry { id, title }) = div do
+  text title
+  button #! onClick (DeleteEntry id) $ text "x"
 
 view :: State -> HTML Event
-view s = text $ "Hello world"
+view (State st) = div do
+  div $ text $ "nextId = " <> show st.nextId
+  div $ text $ "editingField = " <> show st.editingField
+  div do
+    for_ st.entries renderEntry
+  div do
+    input #! onChange FieldChanged ! value st.editingField
+    button #! onClick AddEntry $ text "Add"
 
 --------------------
 -- infrastructure --
