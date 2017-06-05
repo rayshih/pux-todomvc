@@ -6,7 +6,7 @@ It removed:
 - Default routing
 - View layout
 
-And provide empty Event and State as alternatives.
+And provide empty `Event` and `State` as alternatives.
 
 Rest of this `README` remaind the same.
 
