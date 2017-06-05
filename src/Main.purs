@@ -1,38 +1,44 @@
 module Main where
 
 import Prelude
-import App.Events (AppEffects, Event(..), foldp)
-import App.Routes (match)
-import App.State (State, init)
-import App.View.Layout (view)
+import App.Events (AppEffects)
 import Control.Monad.Eff (Eff)
 import DOM (DOM)
-import DOM.HTML (window)
-import DOM.HTML.Types (HISTORY)
-import Pux (CoreEffects, App, start)
+import Pux (CoreEffects, App, start, EffModel, noEffects)
+import Pux.DOM.HTML (HTML)
 import Pux.DOM.Events (DOMEvent)
-import Pux.DOM.History (sampleURL)
 import Pux.Renderer.React (renderToDOM)
-import Signal ((~>))
+import Text.Smolder.Markup (text)
+
+data Event
+
+newtype State = State {}
+
+init :: String -> State
+init url = State {}
+
+foldp :: forall fx. Event -> State -> EffModel State Event (AppEffects fx)
+foldp _ s = noEffects s
+
+view :: State -> HTML Event
+view s = text $ "Hello world"
+
+--------------------
+-- infrastructure --
+--------------------
 
 type WebApp = App (DOMEvent -> Event) Event State
 
-type ClientEffects = CoreEffects (AppEffects (history :: HISTORY, dom :: DOM))
+type ClientEffects = CoreEffects (AppEffects (dom :: DOM))
 
 main :: String -> State -> Eff ClientEffects WebApp
 main url state = do
-  -- | Create a signal of URL changes.
-  urlSignal <- sampleURL =<< window
-
-  -- | Map a signal of URL changes to PageView actions.
-  let routeSignal = urlSignal ~> \r -> PageView (match r)
-
   -- | Start the app.
   app <- start
     { initialState: state
     , view
     , foldp
-    , inputs: [routeSignal] }
+    , inputs: [] }
 
   -- | Render to the DOM
   renderToDOM "#app" app.markup app.input

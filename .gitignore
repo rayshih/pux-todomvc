@@ -6,3 +6,5 @@ static/dist/
 .psci_modules
 npm-debug.log
 **DS_Store
+
+*.swp
