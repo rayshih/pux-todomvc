@@ -1,3 +1,15 @@
+# pux-simple-starter-app
+
+This is simplified version of `pux-starter-app` to make tutorial easier.
+It removed:
+
+- Default routing
+- View layout
+
+And provide empty Event and State as alternatives.
+
+Rest of this `README` remaind the same.
+
 # pux-starter-app
 
 The [starter app](http://github.com/alexmingoia/pux-starter-app) is a skeleton
