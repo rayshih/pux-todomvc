@@ -85,9 +85,8 @@ foldp (CancelEditEntry id ev) (State s) =
   }
 
   where
-    update (Entry en) = Entry $ en { editingDesc = en.description
-                                   , isEditing = false
-                                   }
+    resetEditingDesc (Entry en) = Entry $ en { editingDesc = en.description }
+    update = resetEditingDesc >>> setEditState false
 
 foldp (UpdateEntry id ev) (State s) =
   noEffects $ State s {
@@ -95,9 +94,8 @@ foldp (UpdateEntry id ev) (State s) =
   }
 
   where
-    update (Entry en) = Entry $ en { description = en.editingDesc
-                                   , isEditing = false
-                                   }
+    commitEditingDesc (Entry en) = Entry $ en { description = en.editingDesc }
+    update = commitEditingDesc >>> setEditState false
 
 viewEntry :: Entry -> HTML Event
 viewEntry (Entry { id, description, editingDesc, isEditing }) = div do
