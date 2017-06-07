@@ -9,10 +9,13 @@ import Pux (CoreEffects, App, start, EffModel, noEffects)
 import Pux.DOM.Events (DOMEvent, onChange, onClick, targetValue)
 import Pux.DOM.HTML (HTML)
 import Pux.Renderer.React (renderToDOM)
-import Text.Smolder.HTML (div, button, input)
+import Text.Smolder.HTML (a, button, div, input, span)
 import Text.Smolder.HTML.Attributes (value)
 import Text.Smolder.Markup (text, (!), (#!))
 import Prelude hiding (div)
+
+data Visibility = All | Active | Completed
+derive instance eqVis :: Eq Visibility
 
 data Event = FieldChanged DOMEvent
            | AddEntry DOMEvent
@@ -21,11 +24,14 @@ data Event = FieldChanged DOMEvent
            | ChangeEntry Int DOMEvent
            | UpdateEntry Int DOMEvent
            | CancelEditEntry Int DOMEvent
+           | ToggleComplete Int DOMEvent
+           | ChangeVisibility Visibility DOMEvent
 
 newtype Entry = Entry { id :: Int
                       , description :: String
                       , editingDesc :: String
                       , isEditing :: Boolean
+                      , isCompleted :: Boolean
                       }
 
 mkEntry :: Int -> String -> Entry
@@ -33,17 +39,20 @@ mkEntry id description = Entry { id
                                , description
                                , editingDesc: description
                                , isEditing: false
+                               , isCompleted: false
                                }
 
 newtype State = State { nextId :: Int
                       , editingField :: String
                       , entries :: Array Entry
+                      , visibility :: Visibility
                       }
 
 init :: String -> State
 init url = State { nextId: 0
                  , editingField: ""
                  , entries: []
+                 , visibility: All
                  }
 
 updateEntryWithId :: (Entry -> Entry) -> Int -> Array Entry -> Array Entry
@@ -79,7 +88,7 @@ foldp (ChangeEntry id ev) (State s) =
   where
     update (Entry en) = Entry $ en { editingDesc = targetValue ev }
 
-foldp (CancelEditEntry id ev) (State s) =
+foldp (CancelEditEntry id ev) ((State s)) =
   noEffects $ State s {
     entries = updateEntryWithId update id s.entries
   }
@@ -97,27 +106,66 @@ foldp (UpdateEntry id ev) (State s) =
     commitEditingDesc (Entry en) = Entry $ en { description = en.editingDesc }
     update = commitEditingDesc >>> setEditState false
 
+foldp (ToggleComplete id ev) (State s) =
+  noEffects $ State s {
+    entries = updateEntryWithId update id s.entries
+  }
+
+  where
+    update (Entry en) = Entry $ en { isCompleted = not en.isCompleted }
+
+foldp (ChangeVisibility vis ev) (State s) =
+  noEffects $ State s { visibility = vis }
+
 viewEntry :: Entry -> HTML Event
-viewEntry (Entry { id, description, editingDesc, isEditing }) = div do
-  if isEditing
-    then do
-      input #! onChange (ChangeEntry id) ! value editingDesc
-      button #! onClick (UpdateEntry id) $ text "Update"
-      button #! onClick (CancelEditEntry id) $ text "Cancel"
-    else do
-      text description
-      button #! onClick (EditEntry id) $ text "Edit"
-      button #! onClick (DeleteEntry id) $ text "x"
+viewEntry (Entry { id, description, editingDesc, isEditing, isCompleted }) = div do
+  checkbox
+  rightView
+  where
+    checkbox = span do
+      a #! onClick (ToggleComplete id) $ text $
+        "[" <> (if isCompleted then "v" else " ") <> "]"
+
+    rightView = if isEditing
+                then do
+                  input #! onChange (ChangeEntry id) ! value editingDesc
+                  button #! onClick (UpdateEntry id) $ text "Update"
+                  button #! onClick (CancelEditEntry id) $ text "Cancel"
+                else do
+                  text description
+                  button #! onClick (EditEntry id) $ text "Edit"
+                  button #! onClick (DeleteEntry id) $ text "x"
 
 view :: State -> HTML Event
 view (State st) = div do
   div $ text $ "nextId = " <> show st.nextId
   div $ text $ "editingField = " <> show st.editingField
   div do
-    for_ st.entries $ viewEntry
+    for_ entries' $ viewEntry
   div do
     input #! onChange FieldChanged ! value st.editingField
     button #! onClick AddEntry $ text "Add"
+  div do
+    text $ "Visibility: "
+    visBtn All "All" st.visibility
+    visBtn Active "Active" st.visibility
+    visBtn Completed "Completed" st.visibility
+
+  where
+    entries' = filter matchVis st.entries
+
+    matchVis (Entry { isCompleted }) =
+      if st.visibility == All
+      then true
+      else if st.visibility == Active
+           then not isCompleted
+           else isCompleted
+
+    visBtn :: Visibility -> String -> Visibility -> HTML Event
+    visBtn vis label currentVis = button #! onClick (ChangeVisibility vis) $ text label'
+      where label' = if vis == currentVis
+                     then label <> "*"
+                     else label
 
 --------------------
 -- infrastructure --
