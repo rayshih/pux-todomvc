@@ -26,6 +26,8 @@ data Event = FieldChanged DOMEvent
            | CancelEditEntry Int DOMEvent
            | ToggleComplete Int DOMEvent
            | ChangeVisibility Visibility DOMEvent
+           | CheckAll DOMEvent
+           | DeleteCompeleted DOMEvent
 
 newtype Entry = Entry { id :: Int
                       , description :: String
@@ -117,6 +119,14 @@ foldp (ToggleComplete id ev) (State s) =
 foldp (ChangeVisibility vis ev) (State s) =
   noEffects $ State s { visibility = vis }
 
+foldp (CheckAll ev) (State s) =
+  noEffects $ State s { entries = map update s.entries}
+  where
+    update (Entry en) = Entry $ en { isCompleted = true }
+
+foldp (DeleteCompeleted ev) (State s) =
+  noEffects $ State s { entries = filter (\(Entry en) -> not en.isCompleted) s.entries }
+
 viewEntry :: Entry -> HTML Event
 viewEntry (Entry { id, description, editingDesc, isEditing, isCompleted }) = div do
   checkbox
@@ -150,6 +160,10 @@ view (State st) = div do
     visBtn All "All" st.visibility
     visBtn Active "Active" st.visibility
     visBtn Completed "Completed" st.visibility
+  div do
+    text $ "Control: "
+    button #! onClick CheckAll $ text "Check All"
+    button #! onClick DeleteCompeleted $ text "Delete Completed"
 
   where
     entries' = filter matchVis st.entries
