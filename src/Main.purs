@@ -2,19 +2,24 @@ module Main where
 
 import App.Events (AppEffects)
 import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Console (log)
 import Control.Monad.Except (runExcept)
 import DOM (DOM)
 import DOM.Event.KeyboardEvent (code, eventToKeyboardEvent)
-import Data.Array (filter, snoc)
+import Data.Array (filter, null, snoc, length)
 import Data.Either (Either(..))
-import Data.Foldable (for_)
+import Data.Foldable (all, for_)
+import Data.Generic (class Generic, gShow)
+import Data.String (joinWith)
+import Data.String (null) as S
 import Pux (CoreEffects, App, start, EffModel, noEffects)
-import Pux.DOM.Events (DOMEvent, onChange, onClick, onKeyDown, targetValue)
+import Pux.DOM.Events (DOMEvent, onBlur, onChange, onClick, onDoubleClick, onKeyDown, targetValue)
 import Pux.DOM.HTML (HTML)
+import Pux.DOM.HTML.Attributes (focused)
 import Pux.Renderer.React (renderToDOM)
-import Text.Smolder.HTML (a, button, div, h1, header, input, section, span)
-import Text.Smolder.HTML.Attributes (className, placeholder, value)
-import Text.Smolder.Markup (text, (!), (#!))
+import Text.Smolder.HTML (a, button, div, footer, h1, header, input, label, li, section, span, strong, ul)
+import Text.Smolder.HTML.Attributes (checked, className, placeholder, type', value)
+import Text.Smolder.Markup (EventHandlers, text, (!), (!?), (#!))
 import Prelude hiding (div)
 
 data Visibility = All | Active | Completed
@@ -29,8 +34,9 @@ data Event = FieldChanged DOMEvent
            | CancelEditEntry Int DOMEvent
            | ToggleComplete Int DOMEvent
            | ChangeVisibility Visibility DOMEvent
-           | CheckAll DOMEvent
+           | CheckAll Boolean DOMEvent
            | DeleteCompeleted DOMEvent
+           | Noop DOMEvent
 
 newtype Entry = Entry { id :: Int
                       , description :: String
@@ -53,6 +59,19 @@ newtype State = State { nextId :: Int
                       , visibility :: Visibility
                       }
 
+derive instance genericVisibility :: Generic Visibility
+derive instance genericEntry :: Generic Entry
+derive instance genericState :: Generic State
+
+instance showVis :: Show Visibility where
+  show = gShow
+
+instance showEntry :: Show Entry where
+  show = gShow
+
+instance showState :: Show State where
+  show = gShow
+
 init :: String -> State
 init url = State { nextId: 0
                  , editingField: ""
@@ -73,22 +92,24 @@ foldp (FieldChanged ev) (State s) =
   noEffects $ State s { editingField = targetValue ev }
 
 foldp (AddEntry ev) ss@(State s) =
-  case runExcept $ code <$> eventToKeyboardEvent ev of
-    (Left _) -> noEffects ss
-    (Right "Enter") ->
-      noEffects $ State s { nextId = s.nextId + 1
-                          , editingField = ""
-                          , entries = snoc s.entries $ mkEntry s.nextId s.editingField
-                          }
-    (Right _) -> noEffects ss
+  noEffects $ State s { nextId = s.nextId + 1
+                      , editingField = ""
+                      , entries = snoc s.entries $ mkEntry s.nextId s.editingField
+                      }
 
 foldp (DeleteEntry id ev) (State s) =
   noEffects $ State s { entries = filter (\(Entry en) -> en.id /= id) s.entries }
 
 foldp (EditEntry id ev) (State s) =
   noEffects $ State s {
-    entries = updateEntryWithId (setEditState true) id s.entries
+    entries = map update s.entries
   }
+
+  where
+    update ee@(Entry en) =
+      if en.id == id
+      then Entry en { isEditing = true }
+      else Entry en { isEditing = false }
 
 foldp (ChangeEntry id ev) (State s) =
   noEffects $ State s {
@@ -126,32 +147,53 @@ foldp (ToggleComplete id ev) (State s) =
 foldp (ChangeVisibility vis ev) (State s) =
   noEffects $ State s { visibility = vis }
 
-foldp (CheckAll ev) (State s) =
+foldp (CheckAll complete ev) (State s) =
   noEffects $ State s { entries = map update s.entries}
   where
-    update (Entry en) = Entry $ en { isCompleted = true }
+    update (Entry en) = Entry $ en { isCompleted = complete }
 
 foldp (DeleteCompeleted ev) (State s) =
   noEffects $ State s { entries = filter (\(Entry en) -> not en.isCompleted) s.entries }
 
-viewEntry :: Entry -> HTML Event
-viewEntry (Entry { id, description, editingDesc, isEditing, isCompleted }) = div do
-  checkbox
-  rightView
-  where
-    checkbox = span do
-      a #! onClick (ToggleComplete id) $ text $
-        "[" <> (if isCompleted then "v" else " ") <> "]"
+foldp (Noop ev) ss = noEffects ss
 
-    rightView = if isEditing
-                then do
-                  input #! onChange (ChangeEntry id) ! value editingDesc
-                  button #! onClick (UpdateEntry id) $ text "Update"
-                  button #! onClick (CancelEditEntry id) $ text "Cancel"
-                else do
-                  text description
-                  button #! onClick (EditEntry id) $ text "Edit"
-                  button #! onClick (DeleteEntry id) $ text "x"
+filterKey :: String -> (DOMEvent -> Event) -> (DOMEvent -> Event)
+filterKey keyCode f ev =
+  case runExcept $ code <$> eventToKeyboardEvent ev of
+    (Right code) | code == keyCode -> f ev
+    _ -> Noop ev
+
+onEnter :: (DOMEvent -> Event) -> EventHandlers (DOMEvent -> Event)
+onEnter f = onKeyDown (filterKey "Enter" f)
+
+viewEntry :: Entry -> HTML Event
+viewEntry (Entry { id, description, editingDesc, isEditing, isCompleted }) =
+  li ! className cName $ do
+    div ! className "view" $ do
+      (input
+        ! className "toggle"
+        ! type' "checkbox"
+        !? isCompleted) (checked $ show isCompleted)
+        #! onClick (ToggleComplete id)
+      label
+        #! onDoubleClick (EditEntry id)
+        $ text description
+      button
+        ! className "destroy"
+        #! onClick (DeleteEntry id)
+        $ text ""
+    (input
+      ! className "edit"
+      ! value editingDesc
+      !? isEditing) focused
+      #! onChange (ChangeEntry id)
+      #! onEnter (UpdateEntry id)
+      #! onBlur (CancelEditEntry id)
+
+  where
+    cEditing = if isEditing then "editing" else ""
+    cCompleted = if isCompleted then "completed" else ""
+    cName = joinWith " " <<< filter (not <<< S.null) $ [cEditing, cCompleted]
 
 view :: State -> HTML Event
 view (State st) = section ! className "todoapp" $ do
@@ -163,21 +205,42 @@ view (State st) = section ! className "todoapp" $ do
       ! placeholder "What needs to be done?"
       ! value st.editingField
       #! onChange FieldChanged
-      #! onKeyDown AddEntry
-  div do
-    for_ entries' $ viewEntry
-  div do
-    text $ "Visibility: "
-    visBtn All "All" st.visibility
-    visBtn Active "Active" st.visibility
-    visBtn Completed "Completed" st.visibility
-  div do
-    text $ "Control: "
-    button #! onClick CheckAll $ text "Check All"
-    button #! onClick DeleteCompeleted $ text "Delete Completed"
+      #! onEnter AddEntry
+  section ! className "main" $ do
+    when hasEntries do
+      (input
+        ! className "toggle-all"
+        ! type' "checkbox"
+        !? allCompleted) (checked "true")
+        #! onClick (CheckAll $ not allCompleted)
+    ul ! className "todo-list" $ do
+      for_ visibleEntries $ viewEntry
+
+  when hasEntries do
+    footer ! className "footer" $ do
+      span ! className "todo-count" $ do
+        strong $ text $ show $ length leftEntries
+        text " item left"
+
+      ul ! className "filters" $ do
+        visBtn All "All" st.visibility
+        visBtn Active "Active" st.visibility
+        visBtn Completed "Completed" st.visibility
+
+      when (not <<< null $ completedEntries) do
+        button
+          ! className "clear-completed"
+          #! onClick DeleteCompeleted
+          $ text ("Clear completed (" <> (show $ length completedEntries) <> ")")
 
   where
-    entries' = filter matchVis st.entries
+    completedEntries = filter completed st.entries
+    leftEntries = filter (not <<< completed) st.entries
+    visibleEntries = filter matchVis st.entries
+    allCompleted = all completed st.entries
+    hasEntries = not <<< null $ st.entries
+
+    completed (Entry { isCompleted }) = isCompleted
 
     matchVis (Entry { isCompleted }) =
       if st.visibility == All
@@ -187,10 +250,12 @@ view (State st) = section ! className "todoapp" $ do
            else isCompleted
 
     visBtn :: Visibility -> String -> Visibility -> HTML Event
-    visBtn vis label currentVis = button #! onClick (ChangeVisibility vis) $ text label'
-      where label' = if vis == currentVis
-                     then label <> "*"
-                     else label
+    visBtn vis label currentVis = li do
+      (a
+        !? isCurrent) (className "selected")
+        #! onClick (ChangeVisibility vis) $ text label
+      where
+        isCurrent = vis == currentVis
 
 --------------------
 -- infrastructure --
@@ -202,6 +267,9 @@ type ClientEffects = CoreEffects (AppEffects (dom :: DOM))
 
 main :: String -> State -> Eff ClientEffects WebApp
 main url state = do
+  log "do reload"
+  log $ show state
+
   -- | Start the app.
   app <- start
     { initialState: state
