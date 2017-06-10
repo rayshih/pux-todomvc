@@ -17,8 +17,8 @@ import Pux.DOM.Events (DOMEvent, onBlur, onChange, onClick, onDoubleClick, onKey
 import Pux.DOM.HTML (HTML)
 import Pux.DOM.HTML.Attributes (focused)
 import Pux.Renderer.React (renderToDOM)
-import Text.Smolder.HTML (a, button, div, footer, h1, header, input, label, li, section, span, strong, ul)
-import Text.Smolder.HTML.Attributes (checked, className, placeholder, type', value)
+import Text.Smolder.HTML (a, button, div, footer, h1, header, input, label, li, p, section, span, strong, ul)
+import Text.Smolder.HTML.Attributes (checked, className, href, placeholder, type', value)
 import Text.Smolder.Markup (EventHandlers, text, (!), (!?), (#!))
 import Prelude hiding (div)
 
@@ -196,42 +196,55 @@ viewEntry (Entry { id, description, editingDesc, isEditing, isCompleted }) =
     cName = joinWith " " <<< filter (not <<< S.null) $ [cEditing, cCompleted]
 
 view :: State -> HTML Event
-view (State st) = section ! className "todoapp" $ do
-  div do
-    header ! className "header" $ do
-      h1 $ text "todos"
-    input
-      ! className "new-todo"
-      ! placeholder "What needs to be done?"
-      ! value st.editingField
-      #! onChange FieldChanged
-      #! onEnter AddEntry
-  section ! className "main" $ do
+view (State st) = div do
+  section ! className "todoapp" $ do
+    div do
+      header ! className "header" $ do
+        h1 $ text "todos"
+      input
+        ! className "new-todo"
+        ! placeholder "What needs to be done?"
+        ! value st.editingField
+        #! onChange FieldChanged
+        #! onEnter AddEntry
+    section ! className "main" $ do
+      when hasEntries do
+        (input
+          ! className "toggle-all"
+          ! type' "checkbox"
+          !? allCompleted) (checked "true")
+          #! onClick (CheckAll $ not allCompleted)
+      ul ! className "todo-list" $ do
+        for_ visibleEntries $ viewEntry
+
     when hasEntries do
-      (input
-        ! className "toggle-all"
-        ! type' "checkbox"
-        !? allCompleted) (checked "true")
-        #! onClick (CheckAll $ not allCompleted)
-    ul ! className "todo-list" $ do
-      for_ visibleEntries $ viewEntry
+      footer ! className "footer" $ do
+        span ! className "todo-count" $ do
+          strong $ text $ show $ length leftEntries
+          text " item left"
 
-  when hasEntries do
-    footer ! className "footer" $ do
-      span ! className "todo-count" $ do
-        strong $ text $ show $ length leftEntries
-        text " item left"
+        ul ! className "filters" $ do
+          visBtn All "All" st.visibility
+          visBtn Active "Active" st.visibility
+          visBtn Completed "Completed" st.visibility
 
-      ul ! className "filters" $ do
-        visBtn All "All" st.visibility
-        visBtn Active "Active" st.visibility
-        visBtn Completed "Completed" st.visibility
+        when (not <<< null $ completedEntries) do
+          button
+            ! className "clear-completed"
+            #! onClick DeleteCompeleted
+            $ text ("Clear completed (" <> (show $ length completedEntries) <> ")")
 
-      when (not <<< null $ completedEntries) do
-        button
-          ! className "clear-completed"
-          #! onClick DeleteCompeleted
-          $ text ("Clear completed (" <> (show $ length completedEntries) <> ")")
+  footer ! className "info" $ do
+    p $ text "Double-click to edit a todo"
+    p do
+      text "Template by "
+      a ! href "http://sindresorhus.com" $ text "Sindre Sorhus"
+    p do
+      text "Created by "
+      a $ text "Ray Shih"
+    p do
+      text "Part of "
+      a ! href "http://todomvc.com" $ text "TodoMVC"
 
   where
     completedEntries = filter completed st.entries
