@@ -22,6 +22,7 @@ import Text.Smolder.HTML.Attributes (checked, className, href, placeholder, type
 import Text.Smolder.Markup (EventHandlers, text, (!), (!?), (#!))
 import Prelude hiding (div)
 
+-- define types and data
 data Visibility = All | Active | Completed
 derive instance eqVis :: Eq Visibility
 
@@ -59,6 +60,7 @@ newtype State = State { nextId :: Int
                       , visibility :: Visibility
                       }
 
+-- add show to easier debug
 derive instance genericVisibility :: Generic Visibility
 derive instance genericEntry :: Generic Entry
 derive instance genericState :: Generic State
@@ -72,6 +74,7 @@ instance showEntry :: Show Entry where
 instance showState :: Show State where
   show = gShow
 
+-- init state
 init :: String -> State
 init url = State { nextId: 0
                  , editingField: ""
@@ -79,6 +82,8 @@ init url = State { nextId: 0
                  , visibility: All
                  }
 
+-- update reusable util functions
+-- update only if match id
 updateEntryWithId :: (Entry -> Entry) -> Int -> Array Entry -> Array Entry
 updateEntryWithId f id = map applyIfMatch
   where applyIfMatch entry@(Entry en) | en.id == id = f entry
@@ -87,6 +92,7 @@ updateEntryWithId f id = map applyIfMatch
 setEditState :: Boolean -> Entry -> Entry
 setEditState isEditing (Entry en) = Entry $ en { isEditing = isEditing }
 
+-- the foldp
 foldp :: forall fx. Event -> State -> EffModel State Event (AppEffects fx)
 foldp (FieldChanged ev) (State s) =
   noEffects $ State s { editingField = targetValue ev }
@@ -115,6 +121,7 @@ foldp (ChangeEntry id ev) (State s) =
   noEffects $ State s {
     entries = updateEntryWithId update id s.entries
   }
+
   where
     update (Entry en) = Entry $ en { editingDesc = targetValue ev }
 
@@ -157,6 +164,7 @@ foldp (DeleteCompeleted ev) (State s) =
 
 foldp (Noop ev) ss = noEffects ss
 
+-- keyboard event handlers
 filterKey :: String -> (DOMEvent -> Event) -> (DOMEvent -> Event)
 filterKey keyCode f ev =
   case runExcept $ code <$> eventToKeyboardEvent ev of
@@ -166,6 +174,7 @@ filterKey keyCode f ev =
 onEnter :: (DOMEvent -> Event) -> EventHandlers (DOMEvent -> Event)
 onEnter f = onKeyDown (filterKey "Enter" f)
 
+-- render functions
 viewEntry :: Entry -> HTML Event
 viewEntry (Entry { id, description, editingDesc, isEditing, isCompleted }) =
   li ! className cName $ do
@@ -198,26 +207,52 @@ viewEntry (Entry { id, description, editingDesc, isEditing, isCompleted }) =
 view :: State -> HTML Event
 view (State st) = div do
   section ! className "todoapp" $ do
-    div do
-      header ! className "header" $ do
-        h1 $ text "todos"
-      input
-        ! className "new-todo"
-        ! placeholder "What needs to be done?"
-        ! value st.editingField
-        #! onChange FieldChanged
-        #! onEnter AddEntry
-    section ! className "main" $ do
-      when hasEntries do
-        (input
-          ! className "toggle-all"
-          ! type' "checkbox"
-          !? allCompleted) (checked "true")
-          #! onClick (CheckAll $ not allCompleted)
-      ul ! className "todo-list" $ do
-        for_ visibleEntries $ viewEntry
+    inputForNewEntry
+    viewEntries
+    controls
+  infoFooter
 
-    when hasEntries do
+  where
+    -- data
+    completedEntries = filter completed st.entries
+    leftEntries = filter (not <<< completed) st.entries
+    visibleEntries = filter matchVis st.entries
+    allCompleted = all completed st.entries
+    hasEntries = not <<< null $ st.entries
+
+    completed (Entry { isCompleted }) = isCompleted
+
+    matchVis (Entry { isCompleted }) =
+      if st.visibility == All
+      then true
+      else if st.visibility == Active
+           then not isCompleted
+           else isCompleted
+
+    -- sub view functions
+    inputForNewEntry =
+      div do
+        header ! className "header" $ do
+          h1 $ text "todos"
+        input
+          ! className "new-todo"
+          ! placeholder "What needs to be done?"
+          ! value st.editingField
+          #! onChange FieldChanged
+          #! onEnter AddEntry
+
+    viewEntries =
+      when hasEntries do
+        section ! className "main" $ do
+          (input
+            ! className "toggle-all"
+            ! type' "checkbox"
+            !? allCompleted) (checked "true")
+            #! onClick (CheckAll $ not allCompleted)
+        ul ! className "todo-list" $ do
+          for_ visibleEntries $ viewEntry
+
+    controls = when hasEntries do
       footer ! className "footer" $ do
         span ! className "todo-count" $ do
           strong $ text $ show $ length leftEntries
@@ -234,34 +269,6 @@ view (State st) = div do
             #! onClick DeleteCompeleted
             $ text ("Clear completed (" <> (show $ length completedEntries) <> ")")
 
-  footer ! className "info" $ do
-    p $ text "Double-click to edit a todo"
-    p do
-      text "Template by "
-      a ! href "http://sindresorhus.com" $ text "Sindre Sorhus"
-    p do
-      text "Created by "
-      a $ text "Ray Shih"
-    p do
-      text "Part of "
-      a ! href "http://todomvc.com" $ text "TodoMVC"
-
-  where
-    completedEntries = filter completed st.entries
-    leftEntries = filter (not <<< completed) st.entries
-    visibleEntries = filter matchVis st.entries
-    allCompleted = all completed st.entries
-    hasEntries = not <<< null $ st.entries
-
-    completed (Entry { isCompleted }) = isCompleted
-
-    matchVis (Entry { isCompleted }) =
-      if st.visibility == All
-      then true
-      else if st.visibility == Active
-           then not isCompleted
-           else isCompleted
-
     visBtn :: Visibility -> String -> Visibility -> HTML Event
     visBtn vis label currentVis = li do
       (a
@@ -269,6 +276,19 @@ view (State st) = div do
         #! onClick (ChangeVisibility vis) $ text label
       where
         isCurrent = vis == currentVis
+
+infoFooter :: HTML Event
+infoFooter = footer ! className "info" $ do
+  p $ text "Double-click to edit a todo"
+  p do
+    text "Template by "
+    a ! href "http://sindresorhus.com" $ text "Sindre Sorhus"
+  p do
+    text "Created by "
+    a $ text "Ray Shih"
+  p do
+    text "Part of "
+    a ! href "http://todomvc.com" $ text "TodoMVC"
 
 --------------------
 -- infrastructure --
@@ -280,7 +300,7 @@ type ClientEffects = CoreEffects (AppEffects (dom :: DOM))
 
 main :: String -> State -> Eff ClientEffects WebApp
 main url state = do
-  log "do reload"
+  log "Do Reload"
   log $ show state
 
   -- | Start the app.
