@@ -2,15 +2,18 @@ module Main where
 
 import App.Events (AppEffects)
 import Control.Monad.Eff (Eff)
+import Control.Monad.Except (runExcept)
 import DOM (DOM)
+import DOM.Event.KeyboardEvent (code, eventToKeyboardEvent)
 import Data.Array (filter, snoc)
+import Data.Either (Either(..))
 import Data.Foldable (for_)
 import Pux (CoreEffects, App, start, EffModel, noEffects)
-import Pux.DOM.Events (DOMEvent, onChange, onClick, targetValue)
+import Pux.DOM.Events (DOMEvent, onChange, onClick, onKeyDown, targetValue)
 import Pux.DOM.HTML (HTML)
 import Pux.Renderer.React (renderToDOM)
-import Text.Smolder.HTML (a, button, div, input, span)
-import Text.Smolder.HTML.Attributes (value)
+import Text.Smolder.HTML (a, button, div, h1, header, input, section, span)
+import Text.Smolder.HTML.Attributes (className, placeholder, value)
 import Text.Smolder.Markup (text, (!), (#!))
 import Prelude hiding (div)
 
@@ -69,11 +72,15 @@ foldp :: forall fx. Event -> State -> EffModel State Event (AppEffects fx)
 foldp (FieldChanged ev) (State s) =
   noEffects $ State s { editingField = targetValue ev }
 
-foldp (AddEntry ev) (State s) =
-  noEffects $ State s { nextId = s.nextId + 1
-                      , editingField = ""
-                      , entries = snoc s.entries $ mkEntry s.nextId s.editingField
-                      }
+foldp (AddEntry ev) ss@(State s) =
+  case runExcept $ code <$> eventToKeyboardEvent ev of
+    (Left _) -> noEffects ss
+    (Right "Enter") ->
+      noEffects $ State s { nextId = s.nextId + 1
+                          , editingField = ""
+                          , entries = snoc s.entries $ mkEntry s.nextId s.editingField
+                          }
+    (Right _) -> noEffects ss
 
 foldp (DeleteEntry id ev) (State s) =
   noEffects $ State s { entries = filter (\(Entry en) -> en.id /= id) s.entries }
@@ -147,14 +154,18 @@ viewEntry (Entry { id, description, editingDesc, isEditing, isCompleted }) = div
                   button #! onClick (DeleteEntry id) $ text "x"
 
 view :: State -> HTML Event
-view (State st) = div do
-  div $ text $ "nextId = " <> show st.nextId
-  div $ text $ "editingField = " <> show st.editingField
+view (State st) = section ! className "todoapp" $ do
+  div do
+    header ! className "header" $ do
+      h1 $ text "todos"
+    input
+      ! className "new-todo"
+      ! placeholder "What needs to be done?"
+      ! value st.editingField
+      #! onChange FieldChanged
+      #! onKeyDown AddEntry
   div do
     for_ entries' $ viewEntry
-  div do
-    input #! onChange FieldChanged ! value st.editingField
-    button #! onClick AddEntry $ text "Add"
   div do
     text $ "Visibility: "
     visBtn All "All" st.visibility
