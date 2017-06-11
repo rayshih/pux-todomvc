@@ -98,10 +98,12 @@ foldp (FieldChanged ev) (State s) =
   noEffects $ State s { editingField = targetValue ev }
 
 foldp (AddEntry ev) ss@(State s) =
-  noEffects $ State s { nextId = s.nextId + 1
-                      , editingField = ""
-                      , entries = snoc s.entries $ mkEntry s.nextId s.editingField
-                      }
+  if S.null s.editingField
+  then noEffects ss
+  else noEffects $ State s { nextId = s.nextId + 1
+                           , editingField = ""
+                           , entries = snoc s.entries $ mkEntry s.nextId s.editingField
+                           }
 
 foldp (DeleteEntry id ev) (State s) =
   noEffects $ State s { entries = filter (\(Entry en) -> en.id /= id) s.entries }
