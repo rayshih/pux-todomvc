@@ -10,8 +10,13 @@ import Data.Array (filter, null, snoc, length)
 import Data.Either (Either(..))
 import Data.Foldable (all, for_)
 import Data.Generic (class Generic, gShow)
+import Data.Lens ((%~), (.~))
+import Data.Lens.Lens (lens)
+import Data.Lens.Record (prop)
+import Data.Lens.Types (Lens')
 import Data.String (joinWith)
 import Data.String (null) as S
+import Data.Symbol (SProxy(..))
 import Pux (CoreEffects, App, start, EffModel, noEffects)
 import Pux.DOM.Events (DOMEvent, onBlur, onChange, onClick, onDoubleClick, onKeyDown, targetValue)
 import Pux.DOM.HTML (HTML)
@@ -39,12 +44,13 @@ data Event = FieldChanged DOMEvent
            | DeleteCompeleted DOMEvent
            | Noop DOMEvent
 
-newtype Entry = Entry { id :: Int
-                      , description :: String
-                      , editingDesc :: String
-                      , isEditing :: Boolean
-                      , isCompleted :: Boolean
-                      }
+type EntryRec = { id :: Int
+                , description :: String
+                , editingDesc :: String
+                , isEditing :: Boolean
+                , isCompleted :: Boolean
+                }
+newtype Entry = Entry EntryRec
 
 mkEntry :: Int -> String -> Entry
 mkEntry id description = Entry { id
@@ -54,11 +60,29 @@ mkEntry id description = Entry { id
                                , isCompleted: false
                                }
 
-newtype State = State { nextId :: Int
-                      , editingField :: String
-                      , entries :: Array Entry
-                      , visibility :: Visibility
-                      }
+type StateRec = { nextId :: Int
+                , editingField :: String
+                , entries :: Array Entry
+                , visibility :: Visibility
+                }
+newtype State = State StateRec
+
+-- lenses
+
+_Entry :: Lens' Entry EntryRec
+_Entry = lens (\(Entry en) -> en) (\_ en -> Entry en)
+
+_isCompleted :: forall r. Lens' { isCompleted :: Boolean | r } Boolean
+_isCompleted = prop (SProxy :: SProxy "isCompleted")
+
+_State :: Lens' State StateRec
+_State = lens (\(State s) -> s) (\_ s -> State s)
+
+_editingField :: Lens' StateRec String
+_editingField = prop (SProxy :: SProxy "editingField")
+
+_entries :: Lens' StateRec (Array Entry)
+_entries = prop (SProxy :: SProxy "entries")
 
 -- add show to easier debug
 derive instance genericVisibility :: Generic Visibility
@@ -94,8 +118,8 @@ setEditState isEditing (Entry en) = Entry $ en { isEditing = isEditing }
 
 -- the foldp
 foldp :: forall fx. Event -> State -> EffModel State Event (AppEffects fx)
-foldp (FieldChanged ev) (State s) =
-  noEffects $ State s { editingField = targetValue ev }
+foldp (FieldChanged ev) ss =
+  noEffects $ ss # _State <<< _editingField .~ targetValue ev
 
 foldp (AddEntry ev) ss@(State s) =
   if S.null s.editingField
@@ -105,13 +129,11 @@ foldp (AddEntry ev) ss@(State s) =
                            , entries = snoc s.entries $ mkEntry s.nextId s.editingField
                            }
 
-foldp (DeleteEntry id ev) (State s) =
-  noEffects $ State s { entries = filter (\(Entry en) -> en.id /= id) s.entries }
+foldp (DeleteEntry id ev) ss =
+  noEffects $ ss # _State <<< _entries %~ filter (\(Entry en) -> en.id /= id)
 
-foldp (EditEntry id ev) (State s) =
-  noEffects $ State s {
-    entries = map update s.entries
-  }
+foldp (EditEntry id ev) ss =
+  noEffects $ ss # _State <<< _entries %~ map update
 
   where
     update ee@(Entry en) =
@@ -119,47 +141,35 @@ foldp (EditEntry id ev) (State s) =
       then Entry en { isEditing = true }
       else Entry en { isEditing = false }
 
-foldp (ChangeEntry id ev) (State s) =
-  noEffects $ State s {
-    entries = updateEntryWithId update id s.entries
-  }
-
+foldp (ChangeEntry id ev) ss =
+  noEffects $ ss # _State <<< _entries %~ updateEntryWithId update id
   where
     update (Entry en) = Entry $ en { editingDesc = targetValue ev }
 
-foldp (CancelEditEntry id ev) ((State s)) =
-  noEffects $ State s {
-    entries = updateEntryWithId update id s.entries
-  }
-
+foldp (CancelEditEntry id ev) ss =
+  noEffects $ ss # _State <<< _entries %~ updateEntryWithId update id
   where
     resetEditingDesc (Entry en) = Entry $ en { editingDesc = en.description }
     update = resetEditingDesc >>> setEditState false
 
-foldp (UpdateEntry id ev) (State s) =
-  noEffects $ State s {
-    entries = updateEntryWithId update id s.entries
-  }
-
+foldp (UpdateEntry id ev) ss =
+  noEffects $ ss # _State <<< _entries %~ updateEntryWithId update id
   where
     commitEditingDesc (Entry en) = Entry $ en { description = en.editingDesc }
     update = commitEditingDesc >>> setEditState false
 
-foldp (ToggleComplete id ev) (State s) =
-  noEffects $ State s {
-    entries = updateEntryWithId update id s.entries
-  }
-
+foldp (ToggleComplete id ev) ss =
+  noEffects $ ss # _State <<< _entries %~ updateEntryWithId update id
   where
-    update (Entry en) = Entry $ en { isCompleted = not en.isCompleted }
+    update = _Entry <<< _isCompleted %~ not
 
 foldp (ChangeVisibility vis ev) (State s) =
   noEffects $ State s { visibility = vis }
 
-foldp (CheckAll complete ev) (State s) =
-  noEffects $ State s { entries = map update s.entries}
+foldp (CheckAll complete ev) ss =
+  noEffects $ ss # _State <<< _entries %~ map update
   where
-    update (Entry en) = Entry $ en { isCompleted = complete }
+    update = _Entry <<< _isCompleted .~ complete
 
 foldp (DeleteCompeleted ev) (State s) =
   noEffects $ State s { entries = filter (\(Entry en) -> not en.isCompleted) s.entries }
