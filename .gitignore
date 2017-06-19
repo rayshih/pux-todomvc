@@ -1,0 +1,9 @@
+node_modules/
+bower_components/
+output/
+static/
+.psci_modules
+npm-debug.log
+**DS_Store
+
+*.swp
